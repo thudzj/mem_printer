@@ -9,31 +9,34 @@ import sys
 
 import numpy as np
 import tensorflow as tf
-
-VGG_MEAN = [103.939, 116.779, 123.68]
+import pickle
 
 
 class FCN8VGG:
     def __init__(self, vgg16_npy_path=None):
-        if vgg16_npy_path is None:
-            path = sys.modules[self.__class__.__module__].__file__
-            # print path
-            path = os.path.abspath(os.path.join(path, os.pardir))
-            # print path
-            path = os.path.join(path, "vgg16.npy")
-            vgg16_npy_path = path
-            logging.info("Load npy file from '%s'.", vgg16_npy_path)
-        if not os.path.isfile(vgg16_npy_path):
-            logging.error(("File '%s' not found. Download it from "
-                           "https://dl.dropboxusercontent.com/u/"
-                           "50333326/vgg16.npy"), vgg16_npy_path)
-            sys.exit(1)
-
-        self.data_dict = np.load(vgg16_npy_path, encoding='latin1').item()
-        self.wd = 5e-4
+        pkl = pickle.load(open('../deep_memory/vgg16.pkl'))
+        self.data_dict={}
+        self.data_dict["conv1_1"]=[np.transpose(pkl['param values'][0], (2,3,1,0)), pkl['param values'][1]]
+        self.data_dict["conv1_2"]=[np.transpose(pkl['param values'][2], (2,3,1,0)), pkl['param values'][3]]
+        self.data_dict["conv2_1"]=[np.transpose(pkl['param values'][4], (2,3,1,0)), pkl['param values'][5]]
+        self.data_dict["conv2_2"]=[np.transpose(pkl['param values'][6], (2,3,1,0)), pkl['param values'][7]]
+        self.data_dict["conv3_1"]=[np.transpose(pkl['param values'][8], (2,3,1,0)), pkl['param values'][9]]
+        self.data_dict["conv3_2"]=[np.transpose(pkl['param values'][10], (2,3,1,0)), pkl['param values'][11]]
+        self.data_dict["conv3_3"]=[np.transpose(pkl['param values'][12], (2,3,1,0)), pkl['param values'][13]]
+        self.data_dict["conv4_1"]=[np.transpose(pkl['param values'][14], (2,3,1,0)), pkl['param values'][15]]
+        self.data_dict["conv4_2"]=[np.transpose(pkl['param values'][16], (2,3,1,0)), pkl['param values'][17]]
+        self.data_dict["conv4_3"]=[np.transpose(pkl['param values'][18], (2,3,1,0)), pkl['param values'][19]]
+        self.data_dict["conv5_1"]=[np.transpose(pkl['param values'][20], (2,3,1,0)), pkl['param values'][21]]
+        self.data_dict["conv5_2"]=[np.transpose(pkl['param values'][22], (2,3,1,0)), pkl['param values'][23]]
+        self.data_dict["conv5_3"]=[np.transpose(pkl['param values'][24], (2,3,1,0)), pkl['param values'][25]]
+        self.data_dict["fc6"]=[np.reshape(np.transpose(np.reshape(pkl['param values'][26], [512, 7, 7, 4096]), [1,2,0,3]), [-1, 4096]), pkl['param values'][27]]
+        self.data_dict["fc7"]=[pkl['param values'][28], pkl['param values'][29]]
+        self.data_dict["fc8"]=[pkl['param values'][30], pkl['param values'][31]]
+        
+        self.wd = 1e-3
         print("npy file loaded")
 
-    def build(self, rgb, train=False, num_classes=20, random_init_fc8=False,
+    def build(self, bgr, train=False, num_classes=20, random_init_fc8=False,
               debug=False):
         """
         Build the VGG model using loaded weights
@@ -52,61 +55,48 @@ class FCN8VGG:
             Whether to print additional Debug Information.
         """
         # Convert RGB to BGR
+        if train:
+            reuse = None
+        else:
+            reuse = True
 
-        with tf.name_scope('Processing'):
-
-            red, green, blue = tf.split(3, 3, rgb)
-            # assert red.get_shape().as_list()[1:] == [224, 224, 1]
-            # assert green.get_shape().as_list()[1:] == [224, 224, 1]
-            # assert blue.get_shape().as_list()[1:] == [224, 224, 1]
-            bgr = tf.concat(3, [
-                blue - VGG_MEAN[0],
-                green - VGG_MEAN[1],
-                red - VGG_MEAN[2],
-            ])
-
-            if debug:
-                bgr = tf.Print(bgr, [tf.shape(bgr)],
-                               message='Shape of input image: ',
-                               summarize=4, first_n=1)
-
-        self.conv1_1 = self._conv_layer(bgr, "conv1_1")
-        self.conv1_2 = self._conv_layer(self.conv1_1, "conv1_2")
+        self.conv1_1 = self._conv_layer(bgr, "conv1_1", reuse)
+        self.conv1_2 = self._conv_layer(self.conv1_1, "conv1_2", reuse)
         self.pool1 = self._max_pool(self.conv1_2, 'pool1', debug)
 
-        self.conv2_1 = self._conv_layer(self.pool1, "conv2_1")
-        self.conv2_2 = self._conv_layer(self.conv2_1, "conv2_2")
+        self.conv2_1 = self._conv_layer(self.pool1, "conv2_1", reuse)
+        self.conv2_2 = self._conv_layer(self.conv2_1, "conv2_2", reuse)
         self.pool2 = self._max_pool(self.conv2_2, 'pool2', debug)
 
-        self.conv3_1 = self._conv_layer(self.pool2, "conv3_1")
-        self.conv3_2 = self._conv_layer(self.conv3_1, "conv3_2")
-        self.conv3_2 = self._conv_layer(self.conv3_2, "conv3_3")
+        self.conv3_1 = self._conv_layer(self.pool2, "conv3_1", reuse)
+        self.conv3_2 = self._conv_layer(self.conv3_1, "conv3_2", reuse)
+        self.conv3_2 = self._conv_layer(self.conv3_2, "conv3_3", reuse)
         self.pool3 = self._max_pool(self.conv3_2, 'pool3', debug)
 
-        self.conv4_1 = self._conv_layer(self.pool3, "conv4_1")
-        self.conv4_2 = self._conv_layer(self.conv4_1, "conv4_2")
-        self.conv4_3 = self._conv_layer(self.conv4_2, "conv4_3")
+        self.conv4_1 = self._conv_layer(self.pool3, "conv4_1", reuse)
+        self.conv4_2 = self._conv_layer(self.conv4_1, "conv4_2", reuse)
+        self.conv4_3 = self._conv_layer(self.conv4_2, "conv4_3", reuse)
         self.pool4 = self._max_pool(self.conv4_3, 'pool4', debug)
 
-        self.conv5_1 = self._conv_layer(self.pool4, "conv5_1")
-        self.conv5_2 = self._conv_layer(self.conv5_1, "conv5_2")
-        self.conv5_3 = self._conv_layer(self.conv5_2, "conv5_3")
+        self.conv5_1 = self._conv_layer(self.pool4, "conv5_1", reuse)
+        self.conv5_2 = self._conv_layer(self.conv5_1, "conv5_2", reuse)
+        self.conv5_3 = self._conv_layer(self.conv5_2, "conv5_3", reuse)
         self.pool5 = self._max_pool(self.conv5_3, 'pool5', debug)
 
-        self.fc6 = self._fc_layer(self.pool5, "fc6")
+        self.fc6 = self._fc_layer(self.pool5, "fc6", reuse)
 
         if train:
             self.fc6 = tf.nn.dropout(self.fc6, 0.5)
 
-        self.fc7 = self._fc_layer(self.fc6, "fc7")
+        self.fc7 = self._fc_layer(self.fc6, "fc7", reuse)
         if train:
             self.fc7 = tf.nn.dropout(self.fc7, 0.5)
 
         if random_init_fc8:
             self.score_fr = self._score_layer(self.fc7, "score_fr",
-                                              num_classes)
+                                              num_classes, reuse=reuse)
         else:
-            self.score_fr = self._fc_layer(self.fc7, "score_fr",
+            self.score_fr = self._fc_layer(self.fc7, "score_fr", reuse,
                                            num_classes=num_classes,
                                            relu=False)
 
@@ -116,27 +106,32 @@ class FCN8VGG:
                                             shape=tf.shape(self.pool4),
                                             num_classes=num_classes,
                                             debug=debug, name='upscore2',
-                                            ksize=4, stride=2)
+                                            ksize=4, stride=2,  reuse=reuse)
         self.score_pool4 = self._score_layer(self.pool4, "score_pool4",
-                                             num_classes=num_classes)
+                                             num_classes=num_classes,  reuse=reuse)
         self.fuse_pool4 = tf.add(self.upscore2, self.score_pool4)
 
         self.upscore4 = self._upscore_layer(self.fuse_pool4,
                                             shape=tf.shape(self.pool3),
                                             num_classes=num_classes,
                                             debug=debug, name='upscore4',
-                                            ksize=4, stride=2)
+                                            ksize=4, stride=2,  reuse=reuse)
         self.score_pool3 = self._score_layer(self.pool3, "score_pool3",
-                                             num_classes=num_classes)
+                                             num_classes=num_classes, reuse=reuse)
         self.fuse_pool3 = tf.add(self.upscore4, self.score_pool3)
 
         self.upscore32 = self._upscore_layer(self.fuse_pool3,
                                              shape=tf.shape(bgr),
                                              num_classes=num_classes,
                                              debug=debug, name='upscore32',
-                                             ksize=16, stride=8)
+                                             ksize=16, stride=8, reuse=reuse)
 
         self.pred_up = tf.argmax(self.upscore32, dimension=3)
+
+        if train:
+            return self.upscore32
+        else:
+            return self.upscore32
 
     def _max_pool(self, bottom, name, debug):
         pool = tf.nn.max_pool(bottom, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1],
@@ -148,8 +143,8 @@ class FCN8VGG:
                             summarize=4, first_n=1)
         return pool
 
-    def _conv_layer(self, bottom, name):
-        with tf.variable_scope(name) as scope:
+    def _conv_layer(self, bottom, name, reuse):
+        with tf.variable_scope(name, reuse=reuse) as scope:
             filt = self.get_conv_filter(name)
             conv = tf.nn.conv2d(bottom, filt, [1, 1, 1, 1], padding='SAME')
 
@@ -161,19 +156,19 @@ class FCN8VGG:
             _activation_summary(relu)
             return relu
 
-    def _fc_layer(self, bottom, name, num_classes=None,
+    def _fc_layer(self, bottom, name, reuse, num_classes=None,
                   relu=True, debug=False):
-        with tf.variable_scope(name) as scope:
+        with tf.variable_scope(name, reuse=reuse) as scope:
             shape = bottom.get_shape().as_list()
 
             if name == 'fc6':
-                filt = self.get_fc_weight_reshape(name, [7, 7, 512, 4096])
+                filt = self.get_fc_weight_reshape(name, [7, 7, 512, 4096], wd=self.wd)
             elif name == 'score_fr':
                 name = 'fc8'  # Name of score_fr layer in VGG Model
                 filt = self.get_fc_weight_reshape(name, [1, 1, 4096, 1000],
-                                                  num_classes=num_classes)
+                                                  num_classes=num_classes, wd=self.wd)
             else:
-                filt = self.get_fc_weight_reshape(name, [1, 1, 4096, 4096])
+                filt = self.get_fc_weight_reshape(name, [1, 1, 4096, 4096], wd=self.wd)
             conv = tf.nn.conv2d(bottom, filt, [1, 1, 1, 1], padding='SAME')
             conv_biases = self.get_bias(name, num_classes=num_classes)
             bias = tf.nn.bias_add(conv, conv_biases)
@@ -188,8 +183,8 @@ class FCN8VGG:
                                 summarize=4, first_n=1)
             return bias
 
-    def _score_layer(self, bottom, name, num_classes):
-        with tf.variable_scope(name) as scope:
+    def _score_layer(self, bottom, name, num_classes, reuse):
+        with tf.variable_scope(name, reuse=reuse) as scope:
             # get number of input channels
             in_features = bottom.get_shape()[3].value
             shape = [1, 1, in_features, num_classes]
@@ -214,10 +209,10 @@ class FCN8VGG:
             return bias
 
     def _upscore_layer(self, bottom, shape,
-                       num_classes, name, debug,
+                       num_classes, name, debug, reuse,
                        ksize=4, stride=2):
         strides = [1, stride, stride, 1]
-        with tf.variable_scope(name):
+        with tf.variable_scope(name, reuse=reuse):
             in_features = bottom.get_shape()[3].value
 
             if shape is None:
@@ -277,8 +272,7 @@ class FCN8VGG:
         print('Layer shape: %s' % str(shape))
         var = tf.get_variable(name="filter", initializer=init, shape=shape)
         if not tf.get_variable_scope().reuse:
-            weight_decay = tf.mul(tf.nn.l2_loss(var), self.wd,
-                                  name='weight_loss')
+            weight_decay = tf.mul(tf.nn.l2_loss(var), self.wd,name='weight_loss')
             tf.add_to_collection('losses', weight_decay)
         return var
 
@@ -387,7 +381,7 @@ class FCN8VGG:
         return tf.get_variable(name='biases', shape=shape,
                                initializer=initializer)
 
-    def get_fc_weight_reshape(self, name, shape, num_classes=None):
+    def get_fc_weight_reshape(self, name, shape, wd, num_classes=None):
         print('Layer name: %s' % name)
         print('Layer shape: %s' % shape)
         weights = self.data_dict[name][0]
@@ -397,7 +391,12 @@ class FCN8VGG:
                                             num_new=num_classes)
         init = tf.constant_initializer(value=weights,
                                        dtype=tf.float32)
-        return tf.get_variable(name="weights", initializer=init, shape=shape)
+        var = tf.get_variable(name="weights", initializer=init, shape=shape)
+
+        if wd and (not tf.get_variable_scope().reuse):
+            weight_decay = tf.mul(tf.nn.l2_loss(var), wd, name='weight_loss')
+            tf.add_to_collection('losses', weight_decay)
+        return var
 
 
 def _activation_summary(x):
